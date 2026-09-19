@@ -62,7 +62,7 @@
  *
  *   1. MODE   (light / dark)  → neutral surfaces. Selected with
  *      `document.documentElement.dataset.mode`. Defaults to dark.
- *   2. ACCENT (violet / …)    → the primary color only. Selected
+ *   2. ACCENT (emerald / …)   → the primary color only. Selected
  *      with `document.documentElement.dataset.theme`.
  *
  * The two compose: any accent works in either mode. Neutral
@@ -72,7 +72,7 @@
  * --sidebar-ring) live in the ACCENT blocks. They set disjoint
  * variables, so cascade order between them doesn't matter.
  *
- * `:root` carries the dark-mode + violet defaults so a visitor
+ * `:root` carries the dark-mode + emerald defaults so a visitor
  * renders correctly before JS runs; the boot script in
  * layout.tsx replays the saved mode + accent before first paint.
  *
@@ -148,19 +148,6 @@ html[data-mode="light"] {
 /* ---- ACCENT: primary color ---- */
 
 :root,
-html[data-theme="violet"] {
-  --primary: oklch(0.526 0.247 293);
-  --primary-foreground: oklch(0.985 0 0);
-  --primary-hover: oklch(0.6 0.22 293);
-  --primary-soft: oklch(0.526 0.247 293 / 0.12);
-  --primary-soft-2: oklch(0.526 0.247 293 / 0.2);
-  --ring: oklch(0.526 0.247 293);
-  --chart-1: oklch(0.526 0.247 293);
-  --sidebar-primary: oklch(0.526 0.247 293);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-ring: oklch(0.526 0.247 293);
-}
-
 html[data-theme="emerald"] {
   --primary: oklch(0.62 0.16 162);
   --primary-foreground: oklch(0.16 0.02 162);
@@ -173,6 +160,19 @@ html[data-theme="emerald"] {
   --sidebar-primary: oklch(0.62 0.16 162);
   --sidebar-primary-foreground: oklch(0.16 0.02 162);
   --sidebar-ring: oklch(0.62 0.16 162);
+}
+
+html[data-theme="violet"] {
+  --primary: oklch(0.526 0.247 293);
+  --primary-foreground: oklch(0.985 0 0);
+  --primary-hover: oklch(0.6 0.22 293);
+  --primary-soft: oklch(0.526 0.247 293 / 0.12);
+  --primary-soft-2: oklch(0.526 0.247 293 / 0.2);
+  --ring: oklch(0.526 0.247 293);
+  --chart-1: oklch(0.526 0.247 293);
+  --sidebar-primary: oklch(0.526 0.247 293);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-ring: oklch(0.526 0.247 293);
 }
 
 html[data-theme="cobalt"] {

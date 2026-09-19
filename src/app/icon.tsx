@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
-// Replaces the default Next.js favicon with the brand mark — Hostinger
-// violet rounded square + white chat-square glyph — matching the
+// Replaces the default Next.js favicon with the brand mark — Emerald
+// rounded square + white chat-square glyph — matching the
 // sidebar logo in `src/components/layout/sidebar.tsx`. Next.js renders
 // this at build time and auto-injects <link rel="icon"> into <head>.
 //
@@ -22,7 +22,7 @@ export default function Icon() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "#7c3aed", // primary (Hostinger-aligned purple)
+          background: "#10b981", // primary (Emerald)
           borderRadius: 6,
         }}
       >
