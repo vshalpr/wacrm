@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
 import type { Pipeline, PipelineStage, Deal } from "@/types";
 import { PipelineBoard } from "@/components/pipelines/pipeline-board";
 import { PipelineSettings } from "@/components/pipelines/pipeline-settings";
@@ -50,13 +51,25 @@ export default function PipelinesPage() {
   const supabase = createClient();
   const canEditSettings = useCan("edit-settings");
   const canCreateDeals = useCan("send-messages");
-  const { accountId } = useAuth();
+  // Admins/owners see all deals; agents/viewers see only their assigned deals
+  // (enforced at DB level by RLS in migration 045).
+  const canSeeAll = useCan("see-all-data");
+  const { accountId, profile, user, profileLoading } = useAuth();
 
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
   const [stages, setStages] = useState<PipelineStage[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [dealFilter, setDealFilter] = useState<"all" | "me">("all");
   const [loading, setLoading] = useState(true);
+
+  // Lock agents/viewers to "me" once profile loads.
+  useEffect(() => {
+    if (!profileLoading && !canSeeAll) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDealFilter("me");
+    }
+  }, [profileLoading, canSeeAll]);
 
   // Dialog / sheet state
   const [newPipelineOpen, setNewPipelineOpen] = useState(false);
@@ -69,6 +82,21 @@ export default function PipelinesPage() {
   const [dealFormOpen, setDealFormOpen] = useState(false);
   const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
   const [defaultStageId, setDefaultStageId] = useState<string>("");
+
+  // For admins: client-side "me" filter on top of what the server already
+  // returned. For agents: RLS already restricted the DB result so `deals`
+  // only contains their rows; no extra filtering needed (and dealFilter is
+  // always "me", so the condition still holds).
+  const displayedDeals = useMemo(() => {
+    if (dealFilter === "me") {
+      return deals.filter(
+        (d) =>
+          (profile && d.assigned_to === profile.id) ||
+          (user && d.user_id === user.id),
+      );
+    }
+    return deals;
+  }, [deals, dealFilter, profile, user]);
 
   // Guard against double-seeding (React StrictMode double-effect in dev).
   const seedAttempted = useRef(false);
@@ -177,7 +205,6 @@ export default function PipelinesPage() {
     if (!selectedPipelineId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setStages([]);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDeals([]);
       return;
     }
@@ -364,6 +391,44 @@ export default function PipelinesPage() {
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Deal Assignee Filter — admins toggle between All/My Deals;
+              agents/viewers are locked to "My Deals" by RLS so we show
+              a static badge that matches their server-enforced scope. */}
+          {canSeeAll ? (
+            <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setDealFilter("all")}
+                className={cn(
+                  "rounded px-2.5 py-1 font-medium transition-colors",
+                  dealFilter === "all"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                All Deals
+              </button>
+              <button
+                type="button"
+                onClick={() => setDealFilter("me")}
+                className={cn(
+                  "rounded px-2.5 py-1 font-medium transition-colors",
+                  dealFilter === "me"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                My Deals
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/10 p-1 text-xs">
+              <span className="rounded px-2.5 py-1 font-medium bg-primary text-primary-foreground">
+                My Deals
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -412,10 +477,10 @@ export default function PipelinesPage() {
         </div>
       ) : (
         <>
-          <PipelineAnalytics stages={stages} deals={deals} />
+          <PipelineAnalytics stages={stages} deals={displayedDeals} />
           <PipelineBoard
             stages={stages}
-            deals={deals}
+            deals={displayedDeals}
             onDealMoved={handleDealMoved}
             onAddDeal={handleAddDeal}
             onEditDeal={handleEditDeal}

@@ -135,6 +135,15 @@ export interface Contact {
   avatar_url?: string;
   created_at: string;
   updated_at: string;
+  /** Team member assigned to this contact. */
+  assigned_to?: string | null;
+  /** Hydrated assignee profile when joined. */
+  assignee?: {
+    id: string;
+    full_name: string;
+    email: string;
+    avatar_url?: string | null;
+  } | null;
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
    *  Inbox conversation list, for tag filtering). Absent otherwise. */
   tags?: Tag[];

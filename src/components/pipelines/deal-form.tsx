@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useCan } from "@/hooks/use-can";
 import { CURRENCIES } from "@/lib/currency";
 import type {
   Contact,
@@ -55,7 +56,8 @@ export function DealForm({
 }: DealFormProps) {
   const t = useTranslations("Pipelines.form");
   const supabase = createClient();
-  const { accountId, defaultCurrency } = useAuth();
+  const { accountId, defaultCurrency, profile } = useAuth();
+  const canSeeAll = useCan("see-all-data");
 
   const [title, setTitle] = useState("");
   const [value, setValue] = useState("");
@@ -65,24 +67,21 @@ export function DealForm({
   const [assignedTo, setAssignedTo] = useState("");
   const [expectedCloseDate, setExpectedCloseDate] = useState("");
   const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [statusAction, setStatusAction] = useState<DealStatus | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
+  // Supporting data for dropdowns
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [linkedConversation, setLinkedConversation] =
     useState<Conversation | null>(null);
 
-  const [saving, setSaving] = useState(false);
-  const [statusAction, setStatusAction] = useState<DealStatus | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-
-  // Reset the form fields every time the sheet opens or its input
-  // props change. This is a legitimate prop-driven sync; the rule is
-  // over-cautious here, hence the block-level disable.
+  // Sync state with incoming deal prop when it changes / opens
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!open) return;
-    setConfirmDelete(false);
     if (deal) {
       setTitle(deal.title);
       setValue(String(deal.value ?? ""));
@@ -100,11 +99,11 @@ export function DealForm({
       setCurrency(defaultCurrency);
       setContactId("");
       setStageId(defaultStageId || stages[0]?.id || "");
-      setAssignedTo("");
+      setAssignedTo(canSeeAll ? "" : (profile?.id ?? ""));
       setExpectedCloseDate("");
       setNotes("");
     }
-  }, [open, deal, defaultStageId, stages, defaultCurrency]);
+  }, [open, deal, defaultStageId, stages, defaultCurrency, canSeeAll, profile?.id]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // Load supporting data once the sheet is open
@@ -157,6 +156,9 @@ export function DealForm({
       return;
     }
     setSaving(true);
+    const finalAssignedTo = canSeeAll
+      ? (assignedTo || null)
+      : (deal ? (deal.assigned_to ?? null) : (profile?.id || null));
 
     const payload = {
       title: title.trim(),
@@ -165,7 +167,7 @@ export function DealForm({
       contact_id: contactId,
       pipeline_id: pipelineId,
       stage_id: stageId,
-      assigned_to: assignedTo || null,
+      assigned_to: finalAssignedTo,
       notes: notes.trim() || null,
       expected_close_date: expectedCloseDate || null,
     };
@@ -352,18 +354,25 @@ export function DealForm({
 
             <div className="grid gap-2">
               <Label className="text-muted-foreground">{t("assignedTo")}</Label>
-              <select
-                value={assignedTo}
-                onChange={(e) => setAssignedTo(e.target.value)}
-                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
-              >
-                <option value="">{t("unassigned")}</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.full_name || p.email}
-                  </option>
-                ))}
-              </select>
+              {canSeeAll ? (
+                <select
+                  value={assignedTo}
+                  onChange={(e) => setAssignedTo(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
+                >
+                  <option value="">{t("unassigned")}</option>
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.full_name || p.email}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="flex h-9 items-center rounded-lg border border-border bg-muted/60 px-2.5 text-sm text-muted-foreground">
+                  {profiles.find((p) => p.id === (deal ? deal.assigned_to : profile?.id))?.full_name ||
+                    (profile?.full_name ?? "Assigned to you")}
+                </div>
+              )}
             </div>
 
             <div className="grid gap-2">

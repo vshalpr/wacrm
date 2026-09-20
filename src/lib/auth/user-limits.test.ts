@@ -124,7 +124,7 @@ describe("fetchAccountSeatUsage and count helpers", () => {
       return builder;
     };
 
-    return { client: { from } as any, queries };
+    return { client: { from } as unknown as Parameters<typeof countPendingInvitations>[0], queries };
   }
 
   it("counts pending invitations with active unexpired filter", async () => {

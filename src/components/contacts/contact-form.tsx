@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { addContactTag, deleteContactTag } from '@/lib/contacts/tag-api';
 import { toast } from 'sonner';
 import type { Contact, Tag, ContactTag } from '@/types';
@@ -23,7 +24,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -48,13 +48,16 @@ export function ContactForm({
 }: ContactFormProps) {
   const t = useTranslations('Contacts.form');
   const supabase = createClient();
-  const { accountId } = useAuth();
+  const { accountId, user } = useAuth();
+  const canSeeAll = useCan('see-all-data');
   const isEdit = !!contact;
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [company, setCompany] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
+  const [profiles, setProfiles] = useState<{ user_id: string; full_name: string | null; email: string | null }[]>([]);
   const [saving, setSaving] = useState(false);
 
   // Duplicate-phone detection for NEW contacts. `exact` (same digits)
@@ -76,11 +79,14 @@ export function ContactForm({
       setPhone(contact?.phone ?? '');
       setEmail(contact?.email ?? '');
       setCompany(contact?.company ?? '');
+      setAssignedTo(contact?.assigned_to ?? (canSeeAll ? '' : (user?.id ?? '')));
       setSelectedTagIds(contactTags.map((ct) => ct.tag_id));
       setDupMatch(null);
       fetchTags();
+      fetchProfiles();
     }
-  }, [open, contact]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, contact, canSeeAll, user?.id]);
 
   // Look up an existing contact with this number (new contacts only).
   // Runs on blur so we don't query on every keystroke.
@@ -112,6 +118,14 @@ export function ContactForm({
       .order('name');
     if (data) setTags(data);
     setLoadingTags(false);
+  }
+
+  async function fetchProfiles() {
+    const { data } = await supabase
+      .from('profiles')
+      .select('user_id, full_name, email')
+      .order('full_name');
+    if (data) setProfiles(data);
   }
 
   function toggleTag(tagId: string) {
@@ -148,6 +162,9 @@ export function ContactForm({
       if (!accountId) throw new Error('Your profile is not linked to an account.');
 
       let contactId = contact?.id;
+      const finalAssignedTo = canSeeAll
+        ? (assignedTo || null)
+        : (isEdit ? (contact?.assigned_to ?? user.id) : user.id);
 
       if (isEdit && contactId) {
         const { error } = await supabase
@@ -157,6 +174,7 @@ export function ContactForm({
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
+            assigned_to: finalAssignedTo,
             updated_at: new Date().toISOString(),
           })
           .eq('id', contactId);
@@ -171,6 +189,7 @@ export function ContactForm({
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
+            assigned_to: finalAssignedTo,
           })
           .select('id')
           .single();
@@ -321,6 +340,33 @@ export function ContactForm({
               placeholder={t('companyPlaceholder')}
               className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="cf-assignee" className="text-muted-foreground">
+              Assigned Team Member
+            </Label>
+            {canSeeAll ? (
+              <select
+                id="cf-assignee"
+                value={assignedTo}
+                onChange={(e) => setAssignedTo(e.target.value)}
+                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
+              >
+                <option value="">Unassigned</option>
+                {profiles.map((p) => (
+                  <option key={p.user_id} value={p.user_id}>
+                    {p.full_name || p.email || p.user_id}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="flex h-9 items-center rounded-lg border border-border bg-muted/60 px-2.5 text-sm text-muted-foreground">
+                {isEdit
+                  ? profiles.find((p) => p.user_id === contact?.assigned_to)?.full_name || 'Assigned to you'
+                  : 'Assigned to you'}
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">

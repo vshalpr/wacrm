@@ -5,6 +5,7 @@ import {
   canDeleteAccount,
   canEditSettings,
   canManageMembers,
+  canSeeAllData,
   canSendMessages,
   canTransferOwnership,
   canViewOnly,
@@ -126,5 +127,12 @@ describe("capability predicates", () => {
     expect(canTransferOwnership("admin")).toBe(false);
     expect(canTransferOwnership("agent")).toBe(false);
     expect(canTransferOwnership("viewer")).toBe(false);
+  });
+
+  it("canSeeAllData: admin+ only", () => {
+    expect(canSeeAllData("owner")).toBe(true);
+    expect(canSeeAllData("admin")).toBe(true);
+    expect(canSeeAllData("agent")).toBe(false);
+    expect(canSeeAllData("viewer")).toBe(false);
   });
 });

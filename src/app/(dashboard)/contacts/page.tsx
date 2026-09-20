@@ -49,12 +49,14 @@ import {
   SlidersHorizontal,
   Filter,
   X,
+  UserCheck,
 } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
 import { ImportModal } from '@/components/contacts/import-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
-import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
 
@@ -69,6 +71,11 @@ export default function ContactsPage() {
   const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
+  // Admins/owners see all contacts; agents/viewers only see their assigned ones
+  // (enforced at DB level by RLS). The UI mirrors this so the filter label
+  // matches what the server returns.
+  const canSeeAll = useCan('see-all-data');
+  const { user, profileLoading } = useAuth();
 
   const [contacts, setContacts] = useState<ContactWithTags[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,6 +84,19 @@ export default function ContactsPage() {
   const [totalCount, setTotalCount] = useState(0);
   // Tag filter — contacts shown must have ANY of these tags (OR).
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  // Assignee filter: 'all' | 'me' | 'unassigned' | <user_id>
+  const [assignedFilter, setAssignedFilter] = useState<string>('all');
+  const [profiles, setProfiles] = useState<{ user_id: string; full_name: string | null; email: string | null }[]>([]);
+
+  // Lock agents/viewers to 'me' once profile loads so the UI label
+  // matches the server-enforced scope. Using an effect avoids a hydration
+  // mismatch (canSeeAll is false on the first render before profile loads).
+  useEffect(() => {
+    if (!profileLoading && !canSeeAll) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setAssignedFilter('me');
+    }
+  }, [profileLoading, canSeeAll]);
 
   // Modals
   const [formOpen, setFormOpen] = useState(false);
@@ -118,6 +138,14 @@ export default function ContactsPage() {
     }
   }, [supabase]);
 
+  const fetchProfiles = useCallback(async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('user_id, full_name, email')
+      .order('full_name');
+    if (data) setProfiles(data);
+  }, [supabase]);
+
   const fetchContacts = useCallback(async () => {
     const seq = ++fetchSeq.current;
     setLoading(true);
@@ -133,6 +161,13 @@ export default function ContactsPage() {
     let contactRows: Contact[];
     let count: number;
 
+    let targetAssigneeId: string | null = null;
+    if (assignedFilter === 'me') {
+      targetAssigneeId = user?.id || null;
+    } else if (assignedFilter !== 'all' && assignedFilter !== 'unassigned') {
+      targetAssigneeId = assignedFilter;
+    }
+
     if (selectedTagIds.length > 0) {
       // Tag filter active — resolve it server-side (join + distinct +
       // windowed total count + pagination) so a tag covering many
@@ -143,6 +178,8 @@ export default function ContactsPage() {
         p_search: term || null,
         p_limit: PAGE_SIZE,
         p_offset: from,
+        p_assigned_to: targetAssigneeId,
+        p_unassigned_only: assignedFilter === 'unassigned',
       });
       if (seq !== fetchSeq.current) return; // superseded by a newer fetch
       if (error) {
@@ -159,6 +196,14 @@ export default function ContactsPage() {
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(from, to);
+
+      if (assignedFilter === 'me' && user) {
+        query = query.eq('assigned_to', user.id);
+      } else if (assignedFilter === 'unassigned') {
+        query = query.is('assigned_to', null);
+      } else if (assignedFilter !== 'all') {
+        query = query.eq('assigned_to', assignedFilter);
+      }
 
       if (term) {
         const like = `%${term}%`;
@@ -207,16 +252,13 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, selectedTagIds, tagsMap, t]);
+  }, [supabase, page, search, selectedTagIds, tagsMap, assignedFilter, user, t]);
 
-  // Load-once-on-mount-ish data fetches. Each setter inside runs
-  // inside an async promise completion (Supabase await), not
-  // synchronously in the effect body, so the cascade the lint rule
-  // warns about doesn't apply here.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTags();
-  }, [fetchTags]);
+    fetchProfiles();
+  }, [fetchTags, fetchProfiles]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -460,6 +502,33 @@ export default function ContactsPage() {
               )}
             </PopoverContent>
           </Popover>
+
+          {/* Assignee Filter — admins get the full picker; agents/viewers are
+              locked to "me" by RLS so we show a static read-only badge. */}
+          {canSeeAll ? (
+            <select
+              value={assignedFilter}
+              onChange={(e) => {
+                setAssignedFilter(e.target.value);
+                setPage(0);
+              }}
+              className="h-9 rounded-lg border border-border bg-card px-2.5 text-xs text-foreground outline-none focus:border-primary"
+            >
+              <option value="all">All Assignees</option>
+              <option value="me">Assigned to Me</option>
+              <option value="unassigned">Unassigned</option>
+              {profiles.map((p) => (
+                <option key={p.user_id} value={p.user_id}>
+                  {p.full_name || p.email}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 h-9 px-2.5 text-xs text-primary font-medium rounded-lg border border-primary/20 bg-primary/10">
+              <UserCheck className="size-3.5" />
+              My Contacts
+            </span>
+          )}
         </div>
 
         {/* Active tag-filter chips */}
@@ -505,6 +574,38 @@ export default function ContactsPage() {
             {t('selectedCount', { count: selected.size })}
           </p>
           <div className="flex items-center gap-2">
+            {canSeeAll && (
+              <select
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  if (!val) return;
+                  const targetId = val === 'unassigned' ? null : val;
+                  const ids = Array.from(selected);
+                  const { error } = await supabase
+                    .from('contacts')
+                    .update({ assigned_to: targetId, updated_at: new Date().toISOString() })
+                    .in('id', ids);
+                  if (error) {
+                    toast.error('Failed to assign contacts');
+                  } else {
+                    toast.success(`Assigned ${ids.length} contacts`);
+                    setSelected(new Set());
+                    fetchContacts();
+                  }
+                  e.target.value = '';
+                }}
+                defaultValue=""
+                className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground outline-none"
+              >
+                <option value="" disabled>Assign to...</option>
+                <option value="unassigned">Clear Assignee</option>
+                {profiles.map((p) => (
+                  <option key={p.user_id} value={p.user_id}>
+                    {p.full_name || p.email}
+                  </option>
+                ))}
+              </select>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -545,6 +646,7 @@ export default function ContactsPage() {
               <TableHead className="text-muted-foreground">{t('tableColumns.phone')}</TableHead>
               <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.email')}</TableHead>
               <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.company')}</TableHead>
+              <TableHead className="text-muted-foreground hidden lg:table-cell">Assignee</TableHead>
               <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.tags')}</TableHead>
               <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.createdAt')}</TableHead>
               <TableHead className="text-muted-foreground w-12" />
@@ -553,7 +655,7 @@ export default function ContactsPage() {
           <TableBody>
             {loading ? (
               <TableRow className="border-border">
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={9} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2">
                     <Loader2 className="size-6 animate-spin text-primary" />
                     <p className="text-sm text-muted-foreground">{t('loading')}</p>
@@ -562,7 +664,7 @@ export default function ContactsPage() {
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow className="border-border">
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={9} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2">
                     <Users className="size-8 text-muted-foreground" />
                     <p className="text-sm text-muted-foreground">
@@ -611,6 +713,18 @@ export default function ContactsPage() {
                   </TableCell>
                   <TableCell className="text-muted-foreground hidden lg:table-cell text-sm">
                     {contact.company || <span className="text-muted-foreground">-</span>}
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell text-sm" onClick={(e) => e.stopPropagation()}>
+                    {contact.assigned_to ? (
+                      <span className="inline-flex items-center gap-1 rounded bg-muted/80 px-2 py-0.5 text-xs font-medium text-foreground">
+                        <UserCheck className="size-3 text-primary" />
+                        {profiles.find((p) => p.user_id === contact.assigned_to)?.full_name ||
+                          profiles.find((p) => p.user_id === contact.assigned_to)?.email ||
+                          'Assigned'}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground/60 italic">Unassigned</span>
+                    )}
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
                     <div className="flex flex-wrap gap-1">

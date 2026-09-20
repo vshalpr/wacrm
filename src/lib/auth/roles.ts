@@ -107,3 +107,15 @@ export function canDeleteAccount(role: AccountRole): boolean {
 export function canTransferOwnership(role: AccountRole): boolean {
   return role === "owner";
 }
+
+/**
+ * Admin / owner: can see ALL data in the account regardless of assignment.
+ * Mirrors the `is_assigned_or_admin` SQL helper (migration 045) — any UI
+ * gate that controls whether a user sees all-account data vs. only their
+ * assigned rows should call this predicate.
+ *
+ * Agent / viewer → false (they see only rows assigned to them).
+ */
+export function canSeeAllData(role: AccountRole): boolean {
+  return hasMinRole(role, "admin");
+}

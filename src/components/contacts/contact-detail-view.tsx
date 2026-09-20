@@ -4,9 +4,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { addContactTag, deleteContactTag } from '@/lib/contacts/tag-api';
 import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { formatCurrency } from '@/lib/currency';
 import { toast } from 'sonner';
-import type { Contact, Tag, ContactTag, ContactNote, CustomField, ContactCustomValue, Deal, MessageTemplate } from '@/types';
+import type { Contact, Tag, ContactNote, CustomField, Deal, MessageTemplate } from '@/types';
 import {
   TemplatePicker,
   type TemplateSendValues,
@@ -24,8 +25,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Phone,
   Mail,
@@ -36,9 +35,9 @@ import {
   Plus,
   Trash2,
   Save,
-  X,
   DollarSign,
   LayoutTemplate,
+  UserCheck,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { contactHandle } from '@/lib/whatsapp/wa-identity';
@@ -59,6 +58,7 @@ export function ContactDetailView({
   const t = useTranslations('Contacts.detailView');
   const supabase = createClient();
   const { accountId, defaultCurrency } = useAuth();
+  const canSeeAll = useCan('see-all-data');
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(false);
@@ -75,6 +75,8 @@ export function ContactDetailView({
   const [editPhone, setEditPhone] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editCompany, setEditCompany] = useState('');
+  const [editAssignedTo, setEditAssignedTo] = useState('');
+  const [profiles, setProfiles] = useState<{ user_id: string; full_name: string | null; email: string | null }[]>([]);
   const [savingDetails, setSavingDetails] = useState(false);
 
   // Tags tab
@@ -114,6 +116,14 @@ export function ContactDetailView({
       setEditPhone(data.phone);
       setEditEmail(data.email ?? '');
       setEditCompany(data.company ?? '');
+      setEditAssignedTo(data.assigned_to ?? '');
+    }
+    const { data: profilesData } = await supabase
+      .from('profiles')
+      .select('user_id, full_name, email')
+      .order('full_name');
+    if (profilesData) {
+      setProfiles(profilesData);
     }
     setLoading(false);
   }, [contactId, supabase]);
@@ -205,6 +215,10 @@ export function ContactDetailView({
     }
 
     setSavingDetails(true);
+    const finalAssignedTo = canSeeAll
+      ? (editAssignedTo || null)
+      : (contact?.assigned_to ?? null);
+
     const { error } = await supabase
       .from('contacts')
       .update({
@@ -212,6 +226,7 @@ export function ContactDetailView({
         phone: editPhone.trim(),
         email: editEmail.trim() || null,
         company: editCompany.trim() || null,
+        assigned_to: finalAssignedTo,
         updated_at: new Date().toISOString(),
       })
       .eq('id', contactId);
@@ -430,6 +445,12 @@ export function ContactDetailView({
                         {contact.company}
                       </span>
                     )}
+                    <span className="flex items-center gap-1 rounded bg-muted/80 px-1.5 py-0.5 text-[11px] font-medium text-foreground">
+                      <UserCheck className="size-3 text-primary" />
+                      {profiles.find((p) => p.user_id === contact.assigned_to)?.full_name ||
+                        profiles.find((p) => p.user_id === contact.assigned_to)?.email ||
+                        'Unassigned'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -521,6 +542,28 @@ export function ContactDetailView({
                       onChange={(e) => setEditCompany(e.target.value)}
                       className="bg-muted border-border text-foreground h-8 text-sm"
                     />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-muted-foreground text-xs">Assigned Team Member</Label>
+                    {canSeeAll ? (
+                      <select
+                        value={editAssignedTo}
+                        onChange={(e) => setEditAssignedTo(e.target.value)}
+                        className="h-8 w-full rounded-md border border-border bg-muted px-2 text-xs text-foreground outline-none focus:border-primary"
+                      >
+                        <option value="">Unassigned</option>
+                        {profiles.map((p) => (
+                          <option key={p.user_id} value={p.user_id}>
+                            {p.full_name || p.email || p.user_id}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="flex h-8 items-center rounded-md border border-border bg-muted/60 px-2 text-xs text-muted-foreground">
+                        {profiles.find((p) => p.user_id === contact?.assigned_to)?.full_name ||
+                          (contact?.assigned_to ? 'Assigned' : 'Unassigned')}
+                      </div>
+                    )}
                   </div>
                   <Button
                     onClick={saveDetails}

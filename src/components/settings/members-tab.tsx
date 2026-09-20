@@ -30,6 +30,7 @@ import {
   MailX,
   Plus,
   Trash2,
+  UserPlus,
   UsersRound,
 } from 'lucide-react';
 
@@ -75,6 +76,7 @@ import {
   PresenceDot,
 } from '@/components/presence/presence-dot';
 import { InviteMemberDialog } from './invite-member-dialog';
+import { CreateMemberDialog } from './create-member-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { ROLE_META } from './role-meta';
 
@@ -138,6 +140,7 @@ export function MembersTab() {
   const [loading, setLoading] = useState(true);
 
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [removingMember, setRemovingMember] = useState<Member | null>(null);
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null,
@@ -298,34 +301,41 @@ export function MembersTab() {
         description={t('description')}
         action={
           <RequireRole min="admin">
-            {isLimitReached && seatUsage ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <span>
-                      <Button
-                        onClick={() => setInviteOpen(true)}
-                        disabled
-                      >
-                        <Plus className="size-4" />
-                        {t('inviteMember')}
-                      </Button>
-                    </span>
-                  }
-                />
-                <TooltipContent>
-                  {t('limitReachedTooltip', {
-                    plan: seatUsage.plan_tier,
-                    max: seatUsage.max_users,
-                  })}
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <Button onClick={() => setInviteOpen(true)}>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setInviteOpen(true)}
+                disabled={isLimitReached && !!seatUsage}
+              >
                 <Plus className="size-4" />
                 {t('inviteMember')}
               </Button>
-            )}
+              {isLimitReached && seatUsage ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <span>
+                        <Button disabled>
+                          <UserPlus className="size-4" />
+                          Add User
+                        </Button>
+                      </span>
+                    }
+                  />
+                  <TooltipContent>
+                    {t('limitReachedTooltip', {
+                      plan: seatUsage.plan_tier,
+                      max: seatUsage.max_users,
+                    })}
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <Button onClick={() => setCreateOpen(true)}>
+                  <UserPlus className="size-4" />
+                  Add User
+                </Button>
+              )}
+            </div>
           </RequireRole>
         }
       />
@@ -658,6 +668,12 @@ export function MembersTab() {
       <InviteMemberDialog
         open={inviteOpen}
         onOpenChange={setInviteOpen}
+        onCreated={loadEverything}
+      />
+
+      <CreateMemberDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
         onCreated={loadEverything}
       />
 
