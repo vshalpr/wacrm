@@ -16,7 +16,8 @@ import { NextResponse } from "next/server";
 
 import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
 import { canManageMembers, isAccountRole } from "@/lib/auth/roles";
-import type { AccountMember } from "@/types";
+import { fetchAccountSeatUsage } from "@/lib/auth/user-limits";
+import type { AccountMember, SeatUsage } from "@/types";
 
 interface ProfileRow {
   user_id: string;
@@ -66,7 +67,23 @@ export async function GET() {
       ];
     });
 
-    return NextResponse.json({ members });
+    let seatUsage: SeatUsage | undefined;
+    if (canManageMembers(ctx.role)) {
+      const { seatUsage: usage, error: seatErr } = await fetchAccountSeatUsage({
+        supabase: ctx.supabase,
+        accountId: ctx.accountId,
+        maxUsers: ctx.account.max_users,
+        planTier: ctx.account.plan_tier,
+        activeMembersCount: members.length,
+      });
+      if (seatErr) {
+        console.error("[GET /api/account/members] seat usage error:", seatErr);
+      } else if (usage) {
+        seatUsage = usage;
+      }
+    }
+
+    return NextResponse.json({ members, seatUsage });
   } catch (err) {
     return toErrorResponse(err);
   }

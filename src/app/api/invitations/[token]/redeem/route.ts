@@ -46,6 +46,9 @@ function rpcErrorToResponse(err: PostgrestError): NextResponse {
   if (err.code === "23505") {
     return NextResponse.json({ error: err.message }, { status: 409 });
   }
+  if (err.code === "23514") {
+    return NextResponse.json({ error: err.message }, { status: 403 });
+  }
   console.error("[redeem] unexpected RPC error:", err);
   return NextResponse.json(
     { error: "Failed to redeem invitation" },

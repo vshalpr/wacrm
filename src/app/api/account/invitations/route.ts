@@ -32,6 +32,7 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from "@/lib/rate-limit";
+import { fetchAccountSeatUsage } from "@/lib/auth/user-limits";
 
 // Resolve the base URL we publish invite links under.
 //
@@ -212,6 +213,37 @@ export async function POST(request: Request) {
         );
       }
       label = trimmed === "" ? null : trimmed;
+    }
+
+    // Seat limit enforcement
+    const { seatUsage, error: seatErr } = await fetchAccountSeatUsage({
+      supabase: ctx.supabase,
+      accountId: ctx.accountId,
+      maxUsers: ctx.account.max_users,
+      planTier: ctx.account.plan_tier,
+    });
+
+    if (seatErr || !seatUsage) {
+      console.error(
+        "[POST /api/account/invitations] seat check error:",
+        seatErr,
+      );
+      return NextResponse.json(
+        { error: "Failed to verify seat availability" },
+        { status: 500 },
+      );
+    }
+
+    if (seatUsage.is_limit_reached) {
+      return NextResponse.json(
+        {
+          error: `Seat limit reached. Your plan allows up to ${seatUsage.max_users} ${seatUsage.max_users === 1 ? "user" : "users"}. Upgrade your plan or revoke pending invites to add more teammates.`,
+          code: "USER_LIMIT_REACHED",
+          maxUsers: seatUsage.max_users,
+          usedSeats: seatUsage.total_used,
+        },
+        { status: 403 },
+      );
     }
 
     const { token, hash } = generateInviteToken();

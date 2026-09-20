@@ -57,8 +57,22 @@ export interface Account {
   name: string;
   /** auth.users.id of the immutable owner. */
   owner_user_id: string;
+  /** Dynamic user capacity limit per plan. Defaults to 1 for starter. */
+  max_users?: number;
+  /** Subscription plan tier name (e.g. starter, team, business, custom). */
+  plan_tier?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface SeatUsage {
+  max_users: number;
+  plan_tier: string;
+  active_members: number;
+  pending_invites: number;
+  total_used: number;
+  seats_remaining: number;
+  is_limit_reached: boolean;
 }
 
 /**

@@ -67,6 +67,8 @@ import { RequireRole } from '@/components/auth/require-role';
 import { useAuth } from '@/hooks/use-auth';
 import { usePresence } from '@/hooks/use-presence';
 import type { AccountRole } from '@/lib/auth/roles';
+import type { SeatUsage } from '@/types';
+import { cn } from '@/lib/utils';
 import { presenceLabel, summarize } from '@/lib/presence';
 import {
   PRESENCE_DOT_CLASS,
@@ -132,6 +134,7 @@ export function MembersTab() {
 
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [seatUsage, setSeatUsage] = useState<SeatUsage | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -154,8 +157,11 @@ export function MembersTab() {
         toast.error(payload.error || t('loadFailed'));
         return;
       }
-      const mdata = (await mres.json()) as { members: Member[] };
+      const mdata = (await mres.json()) as { members: Member[]; seatUsage?: SeatUsage };
       setMembers(mdata.members);
+      if (mdata.seatUsage) {
+        setSeatUsage(mdata.seatUsage);
+      }
 
       if (ires) {
         if (!ires.ok) {
@@ -232,20 +238,22 @@ export function MembersTab() {
     if (!removingMember) return;
     setPendingMemberAction(removingMember.user_id);
     try {
-      const res = await fetch(
-        `/api/account/members/${removingMember.user_id}`,
-        { method: 'DELETE' },
-      );
+      const res = await fetch(`/api/account/members/${removingMember.user_id}`, {
+        method: 'DELETE',
+      });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
         toast.error(payload.error || t('removeFailed'));
         return;
       }
-      toast.success(t('removedToast', { name: removingMember.full_name || t('unnamed') }));
-      setMembers((prev) =>
-        prev.filter((m) => m.user_id !== removingMember.user_id),
+      setMembers((prev) => prev.filter((m) => m.user_id !== removingMember.user_id));
+      toast.success(
+        t('removedToast', {
+          name: removingMember.full_name || removingMember.email || t('unnamed'),
+        }),
       );
       setRemovingMember(null);
+      void loadEverything();
     } catch (err) {
       console.error('[MembersTab] remove error:', err);
       toast.error(t('networkError'));
@@ -264,8 +272,9 @@ export function MembersTab() {
         toast.error(payload.error || t('revokeFailed'));
         return;
       }
-      toast.success(t('revokedToast'));
       setInvitations((prev) => prev.filter((i) => i.id !== invite.id));
+      toast.success(t('revokedToast'));
+      void loadEverything();
     } catch (err) {
       console.error('[MembersTab] revoke error:', err);
       toast.error(t('networkError'));
@@ -280,6 +289,8 @@ export function MembersTab() {
     );
   }
 
+  const isLimitReached = Boolean(seatUsage?.is_limit_reached);
+
   return (
     <section className="animate-in fade-in-50 space-y-6 duration-200">
       <SettingsPanelHead
@@ -287,13 +298,97 @@ export function MembersTab() {
         description={t('description')}
         action={
           <RequireRole min="admin">
-            <Button onClick={() => setInviteOpen(true)}>
-              <Plus className="size-4" />
-              {t('inviteMember')}
-            </Button>
+            {isLimitReached && seatUsage ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span>
+                      <Button
+                        onClick={() => setInviteOpen(true)}
+                        disabled
+                      >
+                        <Plus className="size-4" />
+                        {t('inviteMember')}
+                      </Button>
+                    </span>
+                  }
+                />
+                <TooltipContent>
+                  {t('limitReachedTooltip', {
+                    plan: seatUsage.plan_tier,
+                    max: seatUsage.max_users,
+                  })}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <Button onClick={() => setInviteOpen(true)}>
+                <Plus className="size-4" />
+                {t('inviteMember')}
+              </Button>
+            )}
           </RequireRole>
         }
       />
+
+      {/* Seat Usage Overview Banner */}
+      <RequireRole min="admin">
+        {seatUsage && (
+          <Card className="border-border bg-card/60 backdrop-blur-xs">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1.5 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-foreground">
+                      {t('seats')}: {t('seatsUsed', { used: seatUsage.total_used, max: seatUsage.max_users })}
+                    </span>
+                    <Badge variant="secondary" className="text-[11px] font-medium uppercase tracking-wider">
+                      {t('planTier', { tier: seatUsage.plan_tier })}
+                    </Badge>
+                    {isLimitReached && (
+                      <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-[11px] font-medium">
+                        {t('limitReachedBadge')}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {seatUsage.seats_remaining > 0
+                      ? t('seatsRemaining', { count: seatUsage.seats_remaining })
+                      : t('limitReached')}
+                    {seatUsage.pending_invites > 0 && ` · ${t('seatsPending', { pending: seatUsage.pending_invites })}`}
+                  </p>
+                </div>
+
+                <div className="w-full sm:w-56 shrink-0 space-y-1">
+                  <div
+                    role="progressbar"
+                    aria-label={t('seats')}
+                    aria-valuenow={seatUsage.total_used}
+                    aria-valuemin={0}
+                    aria-valuemax={seatUsage.max_users}
+                    className="h-2.5 w-full overflow-hidden rounded-full bg-muted"
+                  >
+                    <div
+                      className={cn(
+                        'h-full transition-all duration-300 rounded-full',
+                        isLimitReached
+                          ? 'bg-amber-500'
+                          : 'bg-primary',
+                      )}
+                      style={{
+                        width: `${Math.min(100, Math.round((seatUsage.total_used / seatUsage.max_users) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>0</span>
+                    <span>{seatUsage.max_users} max</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </RequireRole>
 
       {/* Live presence summary across the roster. Updates without a
           full refresh as heartbeats and the local re-derive tick land. */}

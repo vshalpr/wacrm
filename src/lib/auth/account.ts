@@ -87,8 +87,13 @@ export interface AccountContext {
   accountId: string;
   /** Caller's role within their account. */
   role: AccountRole;
-  /** Lightweight account meta — id + name. */
-  account: { id: string; name: string };
+  /** Lightweight account meta — id + name + plan info. */
+  account: {
+    id: string;
+    name: string;
+    max_users?: number;
+    plan_tier?: string;
+  };
 }
 
 /**
@@ -149,7 +154,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
   // RLS, so it stays robust against cache staleness and older schemas.
   const { data: account, error: accountErr } = await supabase
     .from("accounts")
-    .select("id, name")
+    .select("id, name, max_users, plan_tier")
     .eq("id", data.account_id)
     .maybeSingle();
 
@@ -168,7 +173,12 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     userId: user.id,
     accountId: data.account_id,
     role: data.account_role,
-    account: { id: account.id, name: account.name },
+    account: {
+      id: account.id,
+      name: account.name,
+      max_users: account.max_users ?? 1,
+      plan_tier: account.plan_tier ?? "starter",
+    },
   };
 }
 
