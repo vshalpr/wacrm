@@ -5,13 +5,21 @@
 # recognises before it can boot a throwaway Postgres and replay
 # `supabase/migrations/` against it.
 #
-# It is NOT a mirror of the hosted project's settings. Auth providers,
-# storage limits, SMTP, rate limits and the rest are configured in the
-# Supabase dashboard and are deliberately left out here rather than
-# duplicated into a second source of truth that would quietly drift.
+# It is NOT a full mirror of the hosted project's settings. The local
+# signup/anonymous-user denials below are security requirements for this
+# application; providers, storage limits, SMTP, and rate limits remain
+# configured in the Supabase dashboard and can drift independently.
 # Run `supabase init` if you ever want the CLI's full annotated
 # reference version of this file.
 project_id = "wacrm"
+
+# Mirror the managed-onboarding authentication boundary in local Supabase.
+[auth]
+enable_signup = false
+enable_anonymous_sign_ins = false
+
+[auth.email]
+enable_signup = false
 
 [db]
 port = 54322

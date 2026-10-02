@@ -94,11 +94,23 @@ export async function requireApiKey(
     throw unauthorized();
   }
 
-  // Rate-limit per key, before the scope check, so an unauthorized-
-  // scope caller still can't hammer the endpoint for free.
+  // Rate-limit per key before any account lookup, so an authenticated
+  // caller cannot use requests over budget to drive service-role queries.
+  // Keep this before the scope check so missing-scope calls are charged too.
   const limit = checkRateLimit(`apikey:${row.id}`, RATE_LIMITS.publicApi);
   if (!limit.success) {
     throw rateLimited(limit);
+  }
+
+  // API-key requests have no auth.uid() and use the service-role client,
+  // so suspension must be checked explicitly before accepting the key.
+  const { data: account, error: accountError } = await supabaseAdmin()
+    .from('accounts')
+    .select('status')
+    .eq('id', row.account_id)
+    .maybeSingle();
+  if (accountError || !account || account.status !== 'active') {
+    throw forbidden('Customer account is not active');
   }
 
   if (scope && !hasScope(row.scopes, scope)) {

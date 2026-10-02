@@ -26,12 +26,8 @@ import { toast } from 'sonner';
 import {
   AlertTriangle,
   Loader2,
-  Mail,
-  MailX,
-  Plus,
   Trash2,
   UserPlus,
-  UsersRound,
 } from 'lucide-react';
 
 import {
@@ -75,7 +71,6 @@ import {
   PRESENCE_DOT_CLASS,
   PresenceDot,
 } from '@/components/presence/presence-dot';
-import { InviteMemberDialog } from './invite-member-dialog';
 import { CreateMemberDialog } from './create-member-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { ROLE_META } from './role-meta';
@@ -87,14 +82,7 @@ interface Member {
   avatar_url: string | null;
   role: AccountRole;
   joined_at: string;
-}
-
-interface Invitation {
-  id: string;
-  role: 'admin' | 'agent' | 'viewer';
-  label: string | null;
-  created_at: string;
-  expires_at: string;
+  status: 'active' | 'disabled';
 }
 
 // These roles are translated via `useTranslations("Settings.roles")` where they are used.
@@ -119,15 +107,6 @@ function fmtDate(iso: string): string {
   });
 }
 
-function fmtExpiresIn(iso: string, t: (key: string, values?: Record<string, string | number>) => string): string {
-  const ms = new Date(iso).getTime() - Date.now();
-  if (ms <= 0) return t('expired');
-  const days = Math.floor(ms / (24 * 60 * 60 * 1000));
-  if (days >= 1) return t('expiresInDays', { days });
-  const hours = Math.max(1, Math.floor(ms / (60 * 60 * 1000)));
-  return t('expiresInHours', { hours });
-}
-
 export function MembersTab() {
   const t = useTranslations('Settings.members');
   const tRoles = useTranslations('Settings.roles');
@@ -135,11 +114,9 @@ export function MembersTab() {
   const { getPresence, getRow, now } = usePresence();
 
   const [members, setMembers] = useState<Member[]>([]);
-  const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [seatUsage, setSeatUsage] = useState<SeatUsage | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [inviteOpen, setInviteOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [removingMember, setRemovingMember] = useState<Member | null>(null);
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
@@ -148,12 +125,7 @@ export function MembersTab() {
 
   const loadEverything = useCallback(async () => {
     try {
-      const [mres, ires] = await Promise.all([
-        fetch('/api/account/members', { cache: 'no-store' }),
-        canManageMembers
-          ? fetch('/api/account/invitations', { cache: 'no-store' })
-          : Promise.resolve(null),
-      ]);
+      const mres = await fetch('/api/account/members', { cache: 'no-store' });
 
       if (!mres.ok) {
         const payload = await mres.json().catch(() => ({}));
@@ -166,17 +138,6 @@ export function MembersTab() {
         setSeatUsage(mdata.seatUsage);
       }
 
-      if (ires) {
-        if (!ires.ok) {
-          const payload = await ires.json().catch(() => ({}));
-          toast.error(payload.error || t('loadInvitationsFailed'));
-          return;
-        }
-        const idata = (await ires.json()) as { invitations: Invitation[] };
-        setInvitations(idata.invitations);
-      } else {
-        setInvitations([]);
-      }
     } catch (err) {
       console.error('[MembersTab] load error:', err);
       toast.error(t('networkError'));
@@ -242,19 +203,16 @@ export function MembersTab() {
     setPendingMemberAction(removingMember.user_id);
     try {
       const res = await fetch(`/api/account/members/${removingMember.user_id}`, {
-        method: 'DELETE',
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'disabled' }),
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
         toast.error(payload.error || t('removeFailed'));
         return;
       }
-      setMembers((prev) => prev.filter((m) => m.user_id !== removingMember.user_id));
-      toast.success(
-        t('removedToast', {
-          name: removingMember.full_name || removingMember.email || t('unnamed'),
-        }),
-      );
+      toast.success(`${removingMember.full_name || removingMember.email || t('unnamed')} disabled`);
       setRemovingMember(null);
       void loadEverything();
     } catch (err) {
@@ -265,23 +223,24 @@ export function MembersTab() {
     }
   }
 
-  async function handleRevoke(invite: Invitation) {
+  async function handleReactivate(member: Member) {
+    setPendingMemberAction(member.user_id);
     try {
-      const res = await fetch(`/api/account/invitations/${invite.id}`, {
-        method: 'DELETE',
+      const res = await fetch(`/api/account/members/${member.user_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'active' }),
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || t('revokeFailed'));
+        toast.error(payload.error || t('updateRoleFailed'));
         return;
       }
-      setInvitations((prev) => prev.filter((i) => i.id !== invite.id));
-      toast.success(t('revokedToast'));
+      toast.success(`${member.full_name || member.email || t('unnamed')} reactivated`);
       void loadEverything();
-    } catch (err) {
-      console.error('[MembersTab] revoke error:', err);
+    } catch {
       toast.error(t('networkError'));
-    }
+    } finally { setPendingMemberAction(null); }
   }
 
   if (loading) {
@@ -302,14 +261,6 @@ export function MembersTab() {
         action={
           <RequireRole min="admin">
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setInviteOpen(true)}
-                disabled={isLimitReached && !!seatUsage}
-              >
-                <Plus className="size-4" />
-                {t('inviteMember')}
-              </Button>
               {isLimitReached && seatUsage ? (
                 <Tooltip>
                   <TooltipTrigger
@@ -495,6 +446,7 @@ export function MembersTab() {
                             {t('you')}
                           </Badge>
                         )}
+                        {member.status === 'disabled' && <Badge variant="outline" className="text-[10px]">Disabled</Badge>}
                       </div>
                       {member.email && (
                         <p className="truncate text-xs text-muted-foreground">
@@ -563,11 +515,11 @@ export function MembersTab() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setRemovingMember(member)}
+                        onClick={() => member.status === 'disabled' ? void handleReactivate(member) : setRemovingMember(member)}
                         disabled={isBusy}
                         className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:border-red-500/60 hover:text-red-200"
                       >
-                        <Trash2 className="size-4" />
+                        {member.status === 'disabled' ? 'Reactivate' : <Trash2 className="size-4" />}
                       </Button>
                     )}
                   </div>
@@ -577,99 +529,6 @@ export function MembersTab() {
           </ul>
         </CardContent>
       </Card>
-
-      {/* Pending invitations — admin+ only */}
-      <RequireRole min="admin">
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <UsersRound className="size-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold text-foreground">
-              {t('pendingInvitations')}
-            </h3>
-            <Badge className="bg-muted text-muted-foreground border-border">
-              {invitations.length}
-            </Badge>
-          </div>
-          {/* P10 — make the no-resend design explicit. Admins were
-              confused why the pending list shows roles + expiry but
-              no "copy link again" button. Stating the constraint up
-              front (rather than letting the user discover it by
-              looking for a button) keeps it from feeling like a bug. */}
-          {invitations.length > 0 ? (
-            <p className="mb-3 text-xs text-muted-foreground">
-              {t('inviteHint')}
-            </p>
-          ) : null}
-
-          {invitations.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-8 text-center">
-                <Mail className="size-6 text-muted-foreground" />
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {t('noPendingTitle')}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t.rich('noPendingDesc', { bold: (chunks) => <strong>{chunks}</strong> })}
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="p-0">
-                <ul className="divide-y divide-border">
-                  {invitations.map((inv) => {
-                    const inviteRoleMeta = ROLE_META[inv.role];
-                    const InviteRoleIcon = inviteRoleMeta.icon;
-                    return (
-                    <li
-                      key={inv.id}
-                      className="flex items-center gap-4 px-4 py-3"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-foreground">
-                            {inv.label || t('untitledInvite')}
-                          </span>
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${inviteRoleMeta.className}`}
-                          >
-                            <InviteRoleIcon className="size-3" />
-                            {tRoles(inv.role)}
-                          </span>
-                        </div>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {t('created', { date: fmtDate(inv.created_at) })} · {fmtExpiresIn(inv.expires_at, t)}
-                        </p>
-                      </div>
-
-                      {/* Revoke: red default state, mirrors the
-                          members-tab Remove button. Pre-polish version
-                          read as a neutral secondary button until
-                          hover. */}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleRevoke(inv)}
-                        className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:border-red-500/60 hover:text-red-200"
-                      >
-                        <MailX className="size-4" />
-                        {t('revoke')}
-                      </Button>
-                    </li>
-                    );
-                  })}
-                </ul>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </RequireRole>
-
-      <InviteMemberDialog
-        open={inviteOpen}
-        onOpenChange={setInviteOpen}
-        onCreated={loadEverything}
-      />
 
       <CreateMemberDialog
         open={createOpen}

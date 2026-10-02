@@ -30,8 +30,8 @@ import {
 // to client-side rendering — shipping a settings screen whose rail never
 // wires up its click handlers. You land on the section the URL carried
 // (the account-menu Settings link points at `?tab=whatsapp`) and can't
-// navigate away. Mirror the login/signup split: a thin wrapper supplies
-// the boundary; the inner component reads the query string.
+// navigate away. A thin wrapper supplies the boundary; the inner
+// component reads the query string.
 export default function SettingsPage() {
   return (
     <Suspense fallback={null}>

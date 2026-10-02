@@ -234,6 +234,7 @@ export async function planBroadcastResume(
 
   const plan: BroadcastPlan = {
     broadcastId,
+    accountId,
     templateName: broadcast.template_name,
     templateLanguage: resolvedTemplate.language,
     phoneNumberId: config.phone_number_id,
@@ -263,6 +264,6 @@ export async function markBroadcastSending(
 ): Promise<void> {
   await db
     .from('broadcasts')
-    .update({ status: 'sending', updated_at: new Date().toISOString() })
+    .update({ status: 'sending', paused_from_status: null, updated_at: new Date().toISOString() })
     .eq('id', broadcastId);
 }

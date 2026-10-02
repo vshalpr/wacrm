@@ -26,6 +26,7 @@ vi.mock("./admin-client", () => {
     filters: [string, string, unknown][];
   }) {
     const { table, type } = ops;
+    if (table === "accounts") return { data: { status: "active" }, error: null };
     if (table === "contacts") {
       if (type === "update") {
         state.updateCalls.push({ table, filters: ops.filters });

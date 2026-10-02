@@ -80,10 +80,10 @@ describe("getCurrentAccount", () => {
       user: { id: "user-1" },
       byTable: {
         profiles: {
-          data: { account_id: "acct-1", account_role: "owner" },
+          data: { account_id: "acct-1", account_role: "owner", status: "active" },
           error: null,
         },
-        accounts: { data: { id: "acct-1", name: "Acme" }, error: null },
+        accounts: { data: { id: "acct-1", name: "Acme", status: "active" }, error: null },
       },
     });
     createClient.mockReturnValue(client);
@@ -132,7 +132,7 @@ describe("getCurrentAccount", () => {
       user: { id: "user-1" },
       byTable: {
         profiles: {
-          data: { account_id: "acct-1", account_role: "admin" },
+          data: { account_id: "acct-1", account_role: "admin", status: "active" },
           error: null,
         },
         accounts: { data: null, error: { code: "PGRST200" } },

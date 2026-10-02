@@ -10,6 +10,7 @@ import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { canManageMembers } from '@/lib/auth/roles';
 import { fetchAccountSeatUsage } from '@/lib/auth/user-limits';
+import { provisionManagedUser } from '@/lib/auth/provision-managed-user';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
 interface CreateMemberBody {
@@ -32,7 +33,7 @@ export async function POST(req: Request) {
 
     const body = (await req.json().catch(() => ({}))) as Partial<CreateMemberBody>;
     const email = body.email?.trim().toLowerCase();
-    const password = body.password?.trim();
+    const password = body.password;
     const fullName = body.fullName?.trim() || '';
     const role = body.role === 'viewer' ? 'viewer' : 'agent';
 
@@ -72,52 +73,26 @@ export async function POST(req: Request) {
 
     const admin = supabaseAdmin();
 
-    // Create user in Supabase auth with protected app_metadata pointing to this account
-    const { data: userData, error: createErr } = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: {
-        full_name: fullName,
-      },
-      app_metadata: {
-        account_id: ctx.accountId,
-        account_role: role,
-      },
-    });
-
-    if (createErr || !userData.user) {
+    // The one-time database intent carries trusted account/role data into the
+    // auth.users INSERT trigger, which locks the account and checks capacity.
+    let newUser: Awaited<ReturnType<typeof provisionManagedUser>>;
+    try {
+      newUser = await provisionManagedUser(admin, {
+        email,
+        password,
+        fullName,
+        accountId: ctx.accountId,
+        accountRole: role,
+        appMetadata: { account_id: ctx.accountId, account_role: role },
+      });
+    } catch (createErr) {
       return NextResponse.json(
-        { error: createErr?.message || 'Failed to create user' },
+        { error: createErr instanceof Error ? createErr.message : 'Failed to create user' },
         { status: 400 },
       );
     }
 
-    const newUserId = userData.user.id;
-
-    // Ensure profile row exists and is linked to caller's account
-    const { error: profileErr } = await admin.from('profiles').upsert(
-      {
-        user_id: newUserId,
-        full_name: fullName,
-        email,
-        account_id: ctx.accountId,
-        account_role: role,
-      },
-      { onConflict: 'user_id' },
-    );
-
-    if (profileErr) {
-      console.error('[POST /api/account/members/create] profile error:', profileErr);
-      // Rollback newly created auth user so we do not leave orphaned credentials
-      await admin.auth.admin.deleteUser(newUserId).catch((delErr) => {
-        console.error('[POST /api/account/members/create] rollback deleteUser error:', delErr);
-      });
-      return NextResponse.json(
-        { error: 'Failed to create member profile' },
-        { status: 500 },
-      );
-    }
+    const newUserId = newUser.id;
 
     return NextResponse.json({
       success: true,

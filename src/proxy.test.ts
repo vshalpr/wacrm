@@ -23,6 +23,17 @@ vi.mock("@supabase/ssr", () => ({
       cookies: { setAll: (c: typeof refreshedCookies) => void };
     },
   ) => ({
+    from: (table: string) => {
+      const builder = {
+        select: () => builder,
+        eq: () => builder,
+        maybeSingle: async () => ({
+          data: table === "profiles" ? { account_id: "acct-1", status: "active" } : { status: "active" },
+          error: null,
+        }),
+      };
+      return builder;
+    },
     auth: {
       // Mirrors real auth-js: an expired access token is transparently
       // refreshed inside getUser(), which rotates the refresh token and
@@ -36,7 +47,7 @@ vi.mock("@supabase/ssr", () => ({
 }));
 
 // Imported after the mock is registered.
-const { middleware } = await import("./middleware");
+const { proxy } = await import("./proxy");
 
 beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
@@ -58,16 +69,29 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     mockUser = { id: "user-1" };
     refreshedCookies = [ROTATED];
 
-    const res = await middleware(
+    const res = await proxy(
       new NextRequest("https://app.test/login"),
     );
 
-    // Redirect to /dashboard…
+    // Redirect to the application root; it dispatches platform and
+    // customer identities to their separate dashboards.
     expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toContain("/dashboard");
+    expect(res.headers.get("location")).toBe("https://app.test/");
     // …and the rotated cookie MUST ride along, otherwise the browser keeps
     // replaying the now-consumed refresh token and the session wedges until
     // the user manually clears cookies.
+    expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
+  });
+
+  it("allows signed-in users to open password recovery", async () => {
+    mockUser = { id: "user-1" };
+    refreshedCookies = [ROTATED];
+
+    const res = await proxy(
+      new NextRequest("https://app.test/forgot-password"),
+    );
+
+    expect(res.headers.get("location")).toBeNull();
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
   });
 
@@ -77,7 +101,7 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     // clearing a dead session); those must not be dropped on the redirect.
     refreshedCookies = [{ ...ROTATED, value: "cleared" }];
 
-    const res = await middleware(
+    const res = await proxy(
       new NextRequest("https://app.test/dashboard"),
     );
 
@@ -86,15 +110,15 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     expect(res.cookies.get(ROTATED.name)?.value).toBe("cleared");
   });
 
-  it("redirects a signed-in user with an invite token to /join/<token>", async () => {
+  it("does not route retired invite links into an account-creation flow", async () => {
     mockUser = { id: "user-1" };
     refreshedCookies = [ROTATED];
 
-    const res = await middleware(
+    const res = await proxy(
       new NextRequest("https://app.test/login?invite=abc123"),
     );
 
-    expect(res.headers.get("location")).toContain("/join/abc123");
+    expect(res.headers.get("location")).toBe("https://app.test/");
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
   });
 
@@ -102,7 +126,7 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     mockUser = { id: "user-1" };
     refreshedCookies = [ROTATED];
 
-    const res = await middleware(
+    const res = await proxy(
       new NextRequest("https://app.test/dashboard"),
     );
 

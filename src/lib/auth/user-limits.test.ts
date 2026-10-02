@@ -89,7 +89,6 @@ describe("fetchAccountSeatUsage and count helpers", () => {
     profilesCount?: number;
     profilesErr?: unknown;
     invitesCount?: number;
-    invitesErr?: unknown;
   }) {
     const queries: { table: string; filters: Record<string, unknown> }[] = [];
 
@@ -117,7 +116,7 @@ describe("fetchAccountSeatUsage and count helpers", () => {
           const res =
             table === "profiles"
               ? { count: opts.profilesCount ?? 0, error: opts.profilesErr ?? null }
-              : { count: opts.invitesCount ?? 0, error: opts.invitesErr ?? null };
+              : { count: 0, error: null };
           return Promise.resolve(res).then(onfulfilled);
         },
       };
@@ -127,15 +126,13 @@ describe("fetchAccountSeatUsage and count helpers", () => {
     return { client: { from } as unknown as Parameters<typeof countPendingInvitations>[0], queries };
   }
 
-  it("counts pending invitations with active unexpired filter", async () => {
-    const { client, queries } = makeMockClient({ invitesCount: 3 });
+  it("does not count retired invitation links", async () => {
+    const { client, queries } = makeMockClient({});
     const res = await countPendingInvitations(client, "acct-1");
 
-    expect(res.count).toBe(3);
+    expect(res.count).toBe(0);
     expect(res.error).toBeNull();
-    expect(queries[0].table).toBe("account_invitations");
-    expect(queries[0].filters.account_id).toBe("acct-1");
-    expect(queries[0].filters.accepted_at).toBeNull();
+    expect(queries).toEqual([]);
   });
 
   it("counts active members scoped to account", async () => {
@@ -148,8 +145,8 @@ describe("fetchAccountSeatUsage and count helpers", () => {
     expect(queries[0].filters.account_id).toBe("acct-2");
   });
 
-  it("computes seat usage end-to-end querying both tables when count not provided", async () => {
-    const { client, queries } = makeMockClient({ profilesCount: 3, invitesCount: 1 });
+  it("computes seat usage from active users without querying retired invitations", async () => {
+    const { client, queries } = makeMockClient({ profilesCount: 3 });
     const { seatUsage, error } = await fetchAccountSeatUsage({
       supabase: client,
       accountId: "acct-3",
@@ -160,15 +157,15 @@ describe("fetchAccountSeatUsage and count helpers", () => {
     expect(error).toBeNull();
     expect(seatUsage).toBeDefined();
     expect(seatUsage?.active_members).toBe(3);
-    expect(seatUsage?.pending_invites).toBe(1);
-    expect(seatUsage?.total_used).toBe(4);
-    expect(seatUsage?.seats_remaining).toBe(1);
+    expect(seatUsage?.pending_invites).toBe(0);
+    expect(seatUsage?.total_used).toBe(3);
+    expect(seatUsage?.seats_remaining).toBe(2);
     expect(seatUsage?.is_limit_reached).toBe(false);
-    expect(queries.map((q) => q.table)).toEqual(["profiles", "account_invitations"]);
+    expect(queries.map((q) => q.table)).toEqual(["profiles"]);
   });
 
   it("skips profile query when activeMembersCount is pre-supplied", async () => {
-    const { client, queries } = makeMockClient({ invitesCount: 2 });
+    const { client, queries } = makeMockClient({});
     const { seatUsage, error } = await fetchAccountSeatUsage({
       supabase: client,
       accountId: "acct-4",
@@ -179,16 +176,15 @@ describe("fetchAccountSeatUsage and count helpers", () => {
 
     expect(error).toBeNull();
     expect(seatUsage?.active_members).toBe(1);
-    expect(seatUsage?.pending_invites).toBe(2);
-    expect(seatUsage?.total_used).toBe(3);
-    expect(seatUsage?.is_limit_reached).toBe(true);
-    // Only account_invitations queried
-    expect(queries.map((q) => q.table)).toEqual(["account_invitations"]);
+    expect(seatUsage?.pending_invites).toBe(0);
+    expect(seatUsage?.total_used).toBe(1);
+    expect(seatUsage?.is_limit_reached).toBe(false);
+    expect(queries).toEqual([]);
   });
 
   it("surfaces error when database query fails", async () => {
     const dbErr = new Error("DB connection timeout");
-    const { client } = makeMockClient({ invitesErr: dbErr });
+    const { client } = makeMockClient({ profilesErr: dbErr });
     const { seatUsage, error } = await fetchAccountSeatUsage({
       supabase: client,
       accountId: "acct-5",

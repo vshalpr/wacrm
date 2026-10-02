@@ -62,14 +62,9 @@ export function SettingsOverview({
     // Cheap counts — resolve fast, render immediately.
     (async () => {
       setCountsLoading(true);
-      const [membersRes, invitesRes, templatesTotal, templatesPending, tagsRes, fieldsRes] =
+      const [membersRes, templatesTotal, templatesPending, tagsRes, fieldsRes] =
         await Promise.allSettled([
           fetch('/api/account/members', { cache: 'no-store' }).then((r) => r.json()),
-          canManageMembers
-            ? fetch('/api/account/invitations', { cache: 'no-store' }).then((r) =>
-                r.json(),
-              )
-            : Promise.resolve(null),
           supabase
             .from('message_templates')
             .select('id', { count: 'exact', head: true })
@@ -92,12 +87,7 @@ export function SettingsOverview({
         membersRes.status === 'fulfilled' && Array.isArray(membersRes.value?.members)
           ? membersRes.value.members.length
           : null;
-      const pendingInvites =
-        invitesRes.status === 'fulfilled' &&
-        invitesRes.value &&
-        Array.isArray(invitesRes.value.invitations)
-          ? invitesRes.value.invitations.length
-          : null;
+      const pendingInvites = 0;
 
       setCounts({
         members,

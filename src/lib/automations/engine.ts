@@ -68,6 +68,15 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
   try {
     const db = supabaseAdmin()
 
+    // Webhooks still persist inbound messages for suspended customers, but
+    // must not start new customer automation or outbound work.
+    const { data: account, error: accountError } = await db
+      .from('accounts')
+      .select('status')
+      .eq('id', input.accountId)
+      .maybeSingle()
+    if (accountError || account?.status !== 'active') return
+
     // Tenant isolation. `contactId` can be caller-supplied (the manual
     // POST /api/automations/engine entrypoint reads it straight from the
     // request body), and every step below runs through the service-role
@@ -148,6 +157,14 @@ export async function resumePendingExecution(pending: {
   if (error || !automation) {
     console.error('[automations] resume: missing automation', pending.automation_id, error)
     await markPending(pending.id, 'failed')
+    return
+  }
+
+  const { data: account } = await db.from('accounts').select('status')
+    .eq('id', automation.account_id).maybeSingle()
+  if (account?.status !== 'active') {
+    await db.from('automation_pending_executions').update({ status: 'paused' })
+      .eq('id', pending.id)
     return
   }
 
@@ -274,6 +291,10 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
   let errorMessage: string | null = null
 
   for (const step of steps as AutomationStep[]) {
+    const { data: liveAccount, error: statusError } = await db.from('accounts')
+      .select('status').eq('id', args.automation.account_id).maybeSingle()
+    if (statusError || liveAccount?.status !== 'active') return
+
     // `wait` is the suspension point: enqueue and stop processing this
     // scope. The cron endpoint will pick it up later.
     if (step.step_type === 'wait') {

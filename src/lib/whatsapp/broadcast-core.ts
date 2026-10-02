@@ -64,6 +64,7 @@ interface PlannedRecipient {
 
 export interface BroadcastPlan {
   broadcastId: string;
+  accountId: string;
   templateName: string;
   templateLanguage: string;
   phoneNumberId: string;
@@ -232,6 +233,7 @@ export async function createBroadcast(
 
   return {
     broadcastId,
+    accountId,
     templateName,
     templateLanguage: resolvedTemplate.language,
     phoneNumberId: config.phone_number_id,
@@ -260,6 +262,12 @@ export async function deliverBroadcast(
   plan: BroadcastPlan
 ): Promise<void> {
   for (const recipient of plan.planned) {
+    // This delivery runs after the API response through `after()` and may
+    // outlive the request's customer authorization. Recheck before each
+    // external send; pausing the customer retains its pending recipients.
+    const { data: account } = await db.from('accounts').select('status')
+      .eq('id', plan.accountId).maybeSingle();
+    if (account?.status !== 'active') return;
     const variants = phoneVariants(recipient.phone);
     let sentMessageId: string | null = null;
     let lastError: string | null = null;

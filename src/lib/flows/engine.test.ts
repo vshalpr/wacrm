@@ -34,6 +34,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock("./admin-client", () => {
   function rows(table: string): unknown[] {
+    if (table === "accounts") return [{ status: "active" }];
     if (table === "flow_runs") return h.state.activeRuns;
     if (table === "flows") return h.state.flows;
     if (table === "flow_nodes") return h.state.nodes;

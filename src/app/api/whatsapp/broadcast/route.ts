@@ -163,8 +163,18 @@ export async function POST(request: Request) {
     const results: BroadcastResult[] = []
     let sentCount = 0
     let failedCount = 0
+    let accountPaused = false
 
     for (const recipient of recipients) {
+      // The request can outlive a customer suspension. This query uses the
+      // caller's RLS session, so the active-account membership policy denies
+      // the next send as soon as the platform administrator pauses the tenant.
+      const { data: liveAccount } = await supabase.from('accounts')
+        .select('status').eq('id', accountId).maybeSingle()
+      if (liveAccount?.status !== 'active') {
+        accountPaused = true
+        break
+      }
       const sanitized = sanitizePhoneForMeta(recipient.phone)
 
       if (!isValidE164(sanitized)) {
@@ -229,6 +239,10 @@ export async function POST(request: Request) {
         })
         failedCount++
       }
+    }
+
+    if (accountPaused) {
+      return NextResponse.json({ error: 'Customer account was suspended during delivery', partial: true, sent: sentCount, failed: failedCount, results }, { status: 403 })
     }
 
     return NextResponse.json({

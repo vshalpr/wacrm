@@ -617,6 +617,9 @@ async function advanceFromNodeKey(
   // Defensive cap — if a flow has a cycle (which the validator
   // SHOULD catch but doesn't yet in v1), we bail rather than loop.
   for (let safety = 0; safety < 64; safety += 1) {
+    const { data: account, error: accountError } = await db.from("accounts")
+      .select("status").eq("id", run.account_id).maybeSingle();
+    if (accountError || account?.status !== "active") return { outcome: "completed" };
     if (!currentKey) {
       await logEvent(db, run.id, "error", null, {
         reason: "next_node_key was null mid-advance",
@@ -923,6 +926,17 @@ export async function dispatchInboundToFlows(
 ): Promise<DispatchInboundResult> {
   const db = supabaseAdmin();
   try {
+    // Keep inbound messages in the webhook's normal persistence path, but
+    // do not advance or start customer automation while the account is paused.
+    const { data: account, error: accountError } = await db
+      .from("accounts")
+      .select("status")
+      .eq("id", input.accountId)
+      .maybeSingle();
+    if (accountError || account?.status !== "active") {
+      return { consumed: false, outcome: "no_match" };
+    }
+
     const activeRun = await loadActiveRunForContact(
       db,
       input.accountId,

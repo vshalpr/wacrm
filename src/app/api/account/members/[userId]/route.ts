@@ -29,6 +29,9 @@ import {
 // statuses. The `error.code` field is the SQLSTATE; the `message`
 // is the human-readable RAISE message we put in the migration.
 function rpcErrorToResponse(err: PostgrestError): NextResponse {
+  if (err.code === "23514" || err.code === "23505") {
+    return NextResponse.json({ error: err.message }, { status: 409 });
+  }
   if (err.code === "42501") {
     return NextResponse.json({ error: err.message }, { status: 403 });
   }
@@ -58,9 +61,21 @@ export async function PATCH(
     const { userId } = await params;
 
     const body = (await request.json().catch(() => null)) as
-      | { role?: unknown }
+      | { role?: unknown; status?: unknown }
       | null;
     const role = body?.role;
+
+    if (body?.status !== undefined) {
+      if (body.status !== "active" && body.status !== "disabled") {
+        return NextResponse.json({ error: "'status' must be active or disabled" }, { status: 400 });
+      }
+      const { error } = await ctx.supabase.rpc("set_member_status", {
+        p_user_id: userId,
+        p_status: body.status,
+      });
+      if (error) return rpcErrorToResponse(error);
+      return NextResponse.json({ ok: true, status: body.status });
+    }
 
     if (!isAccountRole(role)) {
       return NextResponse.json(
@@ -109,13 +124,13 @@ export async function DELETE(
 
     const { userId } = await params;
 
-    const { data, error } = await ctx.supabase.rpc("remove_account_member", {
+    const { error } = await ctx.supabase.rpc("remove_account_member", {
       p_user_id: userId,
     });
 
     if (error) return rpcErrorToResponse(error);
 
-    return NextResponse.json({ ok: true, newPersonalAccountId: data });
+    return NextResponse.json({ ok: true, status: "disabled" });
   } catch (err) {
     return toErrorResponse(err);
   }

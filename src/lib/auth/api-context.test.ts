@@ -5,10 +5,25 @@ import type { ApiKeyRow } from "@/lib/api-keys/store";
 import { ApiError } from "@/lib/api/v1/respond";
 import { __resetRateLimitForTests, RATE_LIMITS } from "@/lib/rate-limit";
 
+const accountLookup = vi.hoisted(() => ({ count: 0 }));
+
 // Mock the service-role client factory — requireApiKey only stashes
 // the returned client in the context; tests never call through it.
 vi.mock("@/lib/flows/admin-client", () => ({
-  supabaseAdmin: () => ({ __isMockAdminClient: true }),
+  supabaseAdmin: () => ({
+    __isMockAdminClient: true,
+    from: () => {
+      const b = {
+        select: () => b,
+        eq: () => b,
+        maybeSingle: async () => {
+          accountLookup.count += 1;
+          return { data: { status: "active" }, error: null };
+        },
+      };
+      return b;
+    },
+  }),
 }));
 
 // Mock the store so we control which row a hash resolves to.
@@ -45,6 +60,7 @@ function row(overrides: Partial<ApiKeyRow> = {}): ApiKeyRow {
 
 beforeEach(() => {
   __resetRateLimitForTests();
+  accountLookup.count = 0;
   findActiveKeyByHash.mockReset();
   touchLastUsed.mockReset();
 });
@@ -123,10 +139,12 @@ describe("requireApiKey", () => {
     for (let i = 0; i < RATE_LIMITS.publicApi.limit; i++) {
       await requireApiKey(reqWith(`Bearer ${KEY}`));
     }
+    expect(accountLookup.count).toBe(RATE_LIMITS.publicApi.limit);
     await expectApiError(
       requireApiKey(reqWith(`Bearer ${KEY}`)),
       "rate_limited",
       429,
     );
+    expect(accountLookup.count).toBe(RATE_LIMITS.publicApi.limit);
   });
 });

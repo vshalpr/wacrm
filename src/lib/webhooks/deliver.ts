@@ -50,6 +50,12 @@ export async function dispatchWebhookEvent(
   data: unknown
 ): Promise<void> {
   try {
+    // Inbound webhook handling is retained for suspended customers, but
+    // customer-configured outbound callbacks stop at the live account gate.
+    const { data: account } = await db.from('accounts').select('status')
+      .eq('id', accountId).maybeSingle();
+    if (account?.status !== 'active') return;
+
     const { data: rows, error } = await db
       .from('webhook_endpoints')
       .select('id, url, secret')

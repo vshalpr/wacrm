@@ -54,6 +54,14 @@ export class ForbiddenError extends Error {
   }
 }
 
+/** A customer is suspended or still pending activation. */
+export class AccountUnavailableError extends ForbiddenError {
+  constructor() {
+    super("This customer account is not active");
+    this.name = "AccountUnavailableError";
+  }
+}
+
 /**
  * Convert one of the typed errors above (or anything else) into a
  * `NextResponse`. Routes can do:
@@ -93,6 +101,7 @@ export interface AccountContext {
     name: string;
     max_users?: number;
     plan_tier?: string;
+    status: "pending" | "active" | "suspended";
   };
 }
 
@@ -121,7 +130,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("account_id, account_role")
+    .select("account_id, account_role, status")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -129,7 +138,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     console.error("[getCurrentAccount] profile fetch error:", error);
     throw new ForbiddenError("Could not load account context");
   }
-  if (!data || !data.account_id || !data.account_role) {
+  if (!data || !data.account_id || !data.account_role || data.status !== "active") {
     // Pre-migration profile, or a manual insert that skipped the
     // signup trigger. The user is authenticated but the app has
     // no way to scope their queries — treat as forbidden.
@@ -154,7 +163,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
   // RLS, so it stays robust against cache staleness and older schemas.
   const { data: account, error: accountErr } = await supabase
     .from("accounts")
-    .select("id, name, max_users, plan_tier")
+    .select("id, name, max_users, plan_tier, status")
     .eq("id", data.account_id)
     .maybeSingle();
 
@@ -167,6 +176,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     // or an RLS gap. Same "can't scope this user" outcome as above.
     throw new ForbiddenError("Profile is not linked to an account");
   }
+  if (account.status !== "active") throw new AccountUnavailableError();
 
   return {
     supabase,
@@ -178,6 +188,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
       name: account.name,
       max_users: account.max_users ?? 1,
       plan_tier: account.plan_tier ?? "starter",
+      status: account.status,
     },
   };
 }

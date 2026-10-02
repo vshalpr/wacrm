@@ -1,9 +1,9 @@
 // ============================================================
 // User & Seat Limits helper functions
 //
-// Calculates seat usage metrics for accounts based on active
-// members, pending non-expired invitations, and the account's
-// max_users limit.
+// Calculates seat usage metrics from active members and the account's
+// max_users limit. Invitation links are retired; capacity is checked in
+// the auth trigger when the user is actually provisioned.
 // ============================================================
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -15,8 +15,8 @@ export const DEFAULT_PLAN_TIER = "starter";
 /**
  * Calculate seat utilization for an account.
  *
- * A seat is considered consumed if it is occupied by an active
- * member OR reserved by an active, unexpired invitation.
+ * A seat is consumed by an active member. Managed provisioning performs
+ * the authoritative locked capacity check in the database.
  */
 export function calculateSeatUsage(params: {
   maxUsers?: number | null;
@@ -43,21 +43,14 @@ export function calculateSeatUsage(params: {
   };
 }
 
-/**
- * Counts unredeemed, non-expired invitations for an account.
- */
+/** Invitation records are historical only; links no longer reserve seats. */
 export async function countPendingInvitations(
-  supabase: SupabaseClient,
-  accountId: string,
+  _supabase: SupabaseClient,
+  _accountId: string,
 ): Promise<{ count: number; error: unknown }> {
-  const { count, error } = await supabase
-    .from("account_invitations")
-    .select("*", { count: "exact", head: true })
-    .eq("account_id", accountId)
-    .is("accepted_at", null)
-    .gt("expires_at", new Date().toISOString());
-
-  return { count: count ?? 0, error };
+  void _supabase;
+  void _accountId;
+  return { count: 0, error: null };
 }
 
 /**
@@ -70,7 +63,8 @@ export async function countActiveMembers(
   const { count, error } = await supabase
     .from("profiles")
     .select("*", { count: "exact", head: true })
-    .eq("account_id", accountId);
+    .eq("account_id", accountId)
+    .eq("status", "active");
 
   return { count: count ?? 0, error };
 }
@@ -96,10 +90,7 @@ export async function fetchAccountSeatUsage(params: {
     memberErr = res.error;
   }
 
-  const { count: pendingInvitesCount, error: pendingErr } =
-    await countPendingInvitations(supabase, accountId);
-
-  const error = memberErr || pendingErr;
+  const error = memberErr;
   if (error) {
     return { seatUsage: null, error };
   }
@@ -108,7 +99,7 @@ export async function fetchAccountSeatUsage(params: {
     maxUsers,
     planTier,
     activeMembersCount,
-    pendingInvitesCount,
+    pendingInvitesCount: 0,
   });
 
   return { seatUsage, error: null };

@@ -24,8 +24,8 @@ interface Calls {
   rpcs: { name: string; args: Record<string, unknown> }[];
 }
 
-function makeDb(rows: Row[], calls: Calls) {
-  const from = () => {
+function makeDb(rows: Row[], calls: Calls, accountStatus = 'active') {
+  const from = (table: string) => {
     let mode: 'select' | 'update' = 'select';
     let payload: Record<string, unknown> = {};
     let id: string | null = null;
@@ -41,6 +41,7 @@ function makeDb(rows: Row[], calls: Calls) {
         return b;
       },
       contains: () => Promise.resolve({ data: rows, error: null }),
+      maybeSingle: () => Promise.resolve({ data: table === 'accounts' ? { status: accountStatus } : null, error: null }),
       then: (resolve: (v: unknown) => unknown) => {
         if (mode === 'update' && id) calls.updates.push({ id, payload });
         return resolve({ data: null, error: null });
@@ -130,6 +131,18 @@ describe('dispatchWebhookEvent', () => {
     await dispatchWebhookEvent(makeDb([], calls), 'acct-1', 'message.received', {});
     expect(fetchMock).not.toHaveBeenCalled();
     expect(calls.rpcs).toHaveLength(0);
+    expect(calls.updates).toHaveLength(0);
+  });
+
+  it('retains inbound processing without sending callbacks for a suspended account', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const calls = emptyCalls();
+    await dispatchWebhookEvent(
+      makeDb([{ id: 'a', url: 'https://a.test/hook', secret: 's1' }], calls, 'suspended'),
+      'acct-1', 'message.received', {},
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(calls.updates).toHaveLength(0);
   });
 });

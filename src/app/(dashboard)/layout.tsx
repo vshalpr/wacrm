@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { DashboardShell } from "./dashboard-shell";
+import { getCurrentAccount } from "@/lib/auth/account";
 
 // Server layout whose only job is to declare "do not index" metadata
 // for the authed app. robots.ts already disallows these paths at the
@@ -19,10 +21,17 @@ export const metadata: Metadata = {
   },
 };
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  try {
+    // Server-side authorization remains authoritative even if a page is
+    // reached without the optimistic Proxy redirect.
+    await getCurrentAccount();
+  } catch {
+    redirect("/account-suspended");
+  }
   return <DashboardShell>{children}</DashboardShell>;
 }

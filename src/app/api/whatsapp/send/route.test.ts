@@ -39,11 +39,11 @@ function makeSupabaseMock() {
       switch (table) {
         case 'profiles':
           return {
-            data: { account_id: 'acct-1', account_role: callerRole },
+            data: { account_id: 'acct-1', account_role: callerRole, status: 'active' },
             error: null,
           }
         case 'accounts':
-          return { data: { id: 'acct-1', name: 'Acme' }, error: null }
+          return { data: { id: 'acct-1', name: 'Acme', status: 'active' }, error: null }
         case 'contacts':
           return { data: contactRow, error: null }
         case 'conversations':

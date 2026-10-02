@@ -61,6 +61,10 @@ export async function dispatchInboundToAiReply(
   try {
     const db = supabaseAdmin()
 
+    const { data: account, error: accountError } = await db.from('accounts')
+      .select('status').eq('id', accountId).maybeSingle()
+    if (accountError || account?.status !== 'active') return
+
     const config = await loadAiConfig(db, accountId)
     if (!config || !config.autoReplyEnabled) return
 
@@ -141,6 +145,12 @@ export async function dispatchInboundToAiReply(
       systemPrompt,
       messages,
     })
+
+    // LLM generation may take long enough for an administrator to suspend
+    // this tenant. Do not perform a reply or handoff after that transition.
+    const { data: liveAccount, error: liveStatusError } = await db.from('accounts')
+      .select('status').eq('id', accountId).maybeSingle()
+    if (liveStatusError || liveAccount?.status !== 'active') return
 
     // Record token spend on the account's BYO key. Fire-and-forget so it
     // never adds latency to the customer-facing send: `logAiUsage`

@@ -79,7 +79,7 @@ export function CreateMemberDialog({
         body: JSON.stringify({
           fullName: fullName.trim(),
           email: email.trim(),
-          password: password.trim(),
+          password,
           role,
         }),
       });
